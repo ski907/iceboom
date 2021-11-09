@@ -8,7 +8,7 @@ ymin, ymax = -15, 10
 width, height = xmax - xmin, ymax - ymin
 
 # The area density of sea water and ice.
-rho_water, rho_ice = 1.027, 0.2
+rho_water, rho_ice = 1.027, 0.8
 # Acceleration due to gravity, m.s-2
 g = 9.81
 
@@ -167,14 +167,14 @@ def find_coordinate(xy, xy_index, index):
 #(7,10), (7,7), (5,1)
 #]
 
-poly = [
-(3,0), (7,0), (7,4), (3,4)
-]
+#poly = [
+#(3,0), (7,0), (7,4), (3,4)
+#]
 
-#poly=[]
-#radius = 3
-#for dtheta in np.linspace(0,2*np.pi,100):
-#    poly.append(np.array((radius*np.sin(dtheta),radius*np.cos(dtheta))))
+poly=[]
+radius = 3
+for dtheta in np.linspace(0,2*np.pi,100):
+    poly.append(np.array((radius*np.sin(dtheta),radius*np.cos(dtheta))))
 
 Fz_mag = 0
 
@@ -234,12 +234,12 @@ def update(it):
    
     #Horizontal Force
     if G[1] > 0 - (radius + ice_thickness):
-        Fh = np.array((-1,0))
+        Fh = np.array((-100,0))
     else:
         Fh = np.array((0,0))
 
     #find location of load point Z
-    load_point =0 
+    load_point =50
     Z = find_coordinate(iceberg, iceberg_index, load_point)
     #print(Z)
     
@@ -254,13 +254,16 @@ def update(it):
     anchor_theta = np.arccos(dot_product)
     
     #cable force
-    cable_length = 15
+    cable_length = 10
     comp_cable_length = np.linalg.norm(cable_vector)
     print(comp_cable_length)
     if comp_cable_length>=cable_length:
         cable_force = np.array((0.,0.))
-        cable_force[0] = - Fh[0]
-        cable_force[1] = np.tan(anchor_theta) * (-Fh[0])
+       
+        spring_k = 1000
+        Fspring = spring_k * (comp_cable_length - cable_length) * unit_vector_1
+        cable_force += Fspring
+        
         print(np.tan(anchor_theta) * (-Fh[0]))
     else:
         cable_force = np.array((0,0))
