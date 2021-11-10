@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
+from pycatenary import cable
 
 # Plot limits: ideally the figure will not have to rescale during the animation
 xmin, xmax = -5, 20
@@ -178,21 +179,46 @@ def ice_interface(iceberg,ice_thickness,Fh_mag):
         H = np.array((0,(top_of_boom + bottom_of_ice)*0.5))
         
     return H, Fh
+
+def get_cable_coords(l1,cable_legnth):   
+    cable_coords_list = []
+    for s in np.linspace(0,cable_length):
+        cable_coords_list.append([l1.s2xyz(s)[0],l1.s2xyz(s)[2]])
+        cable_coords = np.array(cable_coords_list)
+    return cable_coords
+
+def check_if_catenary_valid(Z,anchor_point,cable_length):
+    if abs(Z[1] - anchor_point[1]) + abs(Z[0] - anchor_point[0]) > cable_length*1.05:
+        #print(abs(Z[1] - anchor_point[1]) + abs(Z[0] - anchor_point[0]))
+        cat_valid = True
+    else:
+        cat_valid = False
+    return cat_valid
+
+def run_catenary(l1,Z,anchor_point,cable_length,cat_valid):
+    if cat_valid: 
+        l1.computeSolution()
+        cable_coords = get_cable_coords(l1,cable_length)
+    else:
+        cable_coords = np.array((Z,
+                                 (Z[0],anchor_point[1]),
+                                 anchor_point))    
+    return cable_coords, l1
     
 # Our two-dimensional iceberg, defined as a polygon.
-#poly = [
-#(3,0), (3,3), (1,5), (4,7), (0,12), (1,15), (4,17), (6,14), (7,14), (8,12),
-#(7,10), (7,7), (5,1)
-#]
+poly = [
+(3,0), (3,3), (1,5), (4,7), (0,12), (1,15), (4,17), (6,14), (7,14), (8,12),
+(7,10), (7,7), (5,1)
+]
 
 #poly = [
 #(3,0), (7,0), (7,4), (3,4)
 #]
 
-poly=[]
-radius = 3
-for dtheta in np.linspace(0,2*np.pi,100):
-    poly.append(np.array((radius*np.sin(dtheta),radius*np.cos(dtheta))))
+#poly=[]
+#radius = 3
+#for dtheta in np.linspace(0,2*np.pi,100):
+#    poly.append(np.array((radius*np.sin(dtheta),radius*np.cos(dtheta))))
 
 Fz_mag = 0
 
@@ -213,6 +239,37 @@ Fg = np.array((0, -M * g))
 # We also need the Iz component of the iceberg's moment of inertia.
 _, _, Iz = get_moi(iceberg0, rho_ice)
 
+
+#cable anchor
+anchor_point = np.array((7.5,-15))
+
+load_point = 1
+Z = find_coordinate(iceberg0, iceberg0_index, load_point)
+
+Fh_mag = 0
+
+cable_length = 20
+cable_w = 1.036  # submerged weight
+cable_EA = 560e3  # axial stiffness
+cable_floor =True  # if True, contact is possible at the level of the anchor
+cable_anchor = [anchor_point[0], 0., anchor_point[1]]
+cable_fairlead = [Z[0], 0., Z[1]]
+
+
+total_cable_weight = cable_length * cable_w
+
+# create cable instance
+l1 = cable.MooringLine(L=cable_length,
+                       w=cable_w,
+                       EA=cable_EA,
+                       anchor=cable_anchor,
+                       fairlead=cable_fairlead,
+                       floor=cable_floor)
+
+# compute calculations
+cat_valid = check_if_catenary_valid(Z,anchor_point,cable_length)    
+cable_coords, l1 = run_catenary(l1,Z,anchor_point,cable_length,cat_valid)
+
 fig, ax = plt.subplots()
 ax.set_xlim(xmin, xmax)
 ax.set_ylim(ymin, ymax)
@@ -223,17 +280,17 @@ ax.axis('equal')
 h = 0
 # theta is the turning angle of the iceberg from its initial orientation;
 # G is the position of its centre of mass (in world coordinates).
-theta, G = 0, np.array((6, h))
+theta, G = 0, np.array((0, h))
 # omega = dtheta / dt is the angular velocity; dh is the linear velocity.
 omega, dh = 0, np.array((0,0))
 # The time step (s): small, but not too small.
 dt = 0.1
 
-
+phi = 0
 def update(it):
     """Update the animation for iteration number it."""
 
-    global omega, dh, G, theta, Fz_mag
+    global omega, dh, G, theta, Fz_mag, Fh_mag, l1, phi
 
     print('iteration #{}'.format(it))
 
@@ -249,17 +306,23 @@ def update(it):
     iceberg = iceberg + G
     
     ice_thickness = 1
-    Fh_mag = 100
+
+    Fh_mag = np.sin(phi)*500
+    print(Fh_mag)
+    phi+=0.02
+    
     H, Fh = ice_interface(iceberg,ice_thickness,Fh_mag)
 
     #find location of load point Z
-    load_point = 0
+
     Z = find_coordinate(iceberg, iceberg_index, load_point)
-    #print(Z)
     
-    #cable anchor
-    anchor_point = np.array((10,-15))
+    #update the location of where the chain is attached
+    l1.setFairleadCoords([Z[0], 0., Z[1]])
+    cat_valid = check_if_catenary_valid(Z,anchor_point,cable_length)
+    cable_coords, l1 = run_catenary(l1,Z,anchor_point,cable_length,cat_valid)
     
+   
     cable_vector = anchor_point - Z
     
     unit_vector_1 = cable_vector / np.linalg.norm(cable_vector)
@@ -268,21 +331,26 @@ def update(it):
     anchor_theta = np.arccos(dot_product)
     
     #cable force
-    cable_length = 18
-    
+ 
     
     comp_cable_length = np.linalg.norm(cable_vector)
-    print(comp_cable_length)
+    
     if comp_cable_length>=cable_length:
-        cable_force = np.array((0.,0.))
+        cable_force = np.array((0.,-total_cable_weight))
+        
        
         spring_k = 1000
         Fspring = spring_k * (comp_cable_length - cable_length) * unit_vector_1
         cable_force += Fspring
         
-        print(np.tan(anchor_theta) * (-Fh[0]))
+        #print(np.tan(anchor_theta) * (-Fh[0]))
     else:
-        cable_force = np.array((0,0))
+        #cable_force = np.array((0,0))
+        if cat_valid:
+            cable_force = -l1.getTension(cable_length)[[0,2]]
+        else:
+            partial_cable_weight = l1.w*abs((Z[1]-anchor_point[1]))
+            cable_force = np.array((0.,-partial_cable_weight[0]))
 
     Fz = cable_force
     
@@ -360,11 +428,18 @@ def update(it):
     cofm_patch = plt.Circle(G, 0.2, fc='r')
     ax.add_patch(cofm_patch)
     
-    # Draw the cable
-    the_cable = np.array((Z,anchor_point))
-    cable_patch = plt.Polygon(the_cable, fc='#ffdddd', ec='k')
-    ax.add_patch(cable_patch)
-
+    if comp_cable_length >= cable_length:
+        # Draw the cable
+        the_cable = np.array((Z,anchor_point))
+        cable_patch = plt.Polygon(the_cable, fc='#ffdddd', ec='k')
+        ax.add_patch(cable_patch)
+    else:
+        #Draw catenary cable
+        the_catenary_cable = np.array(cable_coords)
+        #print(cable_coords)
+        cat_cable_patch = plt.Polygon(the_catenary_cable, fc=None, fill=False, ec='k',closed=False)
+        ax.add_patch(cat_cable_patch)
+    
     # Update the angular and linear velocities
     omega += alpha * dt
     dh = dh + a * dt
@@ -382,6 +457,6 @@ def main():
     while True:
         update(i)
         i+=1
-    
+#    
 #if __name__ == "__main__":
 #    main()
