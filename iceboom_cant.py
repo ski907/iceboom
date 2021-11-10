@@ -9,7 +9,7 @@ ymin, ymax = -15, 10
 width, height = xmax - xmin, ymax - ymin
 
 # The area density of sea water and ice.
-rho_water, rho_ice = 1.027, 0.7
+rho_water, rho_ice = 1.027, 0.5
 # Acceleration due to gravity, m.s-2
 g = 9.81
 
@@ -217,7 +217,7 @@ def run_catenary(l1,Z,anchor_point,cable_length,cat_valid):
 #]
 
 poly=[]
-radius = 3
+radius = 1
 for dtheta in np.linspace(0,2*np.pi,100):
     poly.append(np.array((radius*np.sin(dtheta),radius*np.cos(dtheta))))
 
@@ -242,18 +242,20 @@ _, _, Iz = get_moi(iceberg0, rho_ice)
 
 
 #cable anchor
-anchor_point = np.array((7.5,-15))
+anchor_point = np.array((7.5,-2))
 
-load_point = 50
+load_point = 25
 Z = find_coordinate(iceberg0, iceberg0_index, load_point)
 
-Fh_mag = -100
+Fh_mag = -5
 boom_under_ice = False
+boom_ice_friction = 0.2
+#Fi = np.array((0,0))
 
-cable_length = 18
-cable_w = 1.036  # submerged weight
+cable_length = 10
+cable_w = .5  # submerged weight
 cable_EA = 560e3  # axial stiffness
-cable_floor =True  # if True, contact is possible at the level of the anchor
+cable_floor = False  # if True, contact is possible at the level of the anchor
 cable_anchor = [anchor_point[0], 0., anchor_point[1]]
 cable_fairlead = [Z[0], 0., Z[1]]
 
@@ -269,7 +271,9 @@ l1 = cable.MooringLine(L=cable_length,
                        floor=cable_floor)
 
 # compute calculations
-cat_valid = check_if_catenary_valid(Z,anchor_point,cable_length)    
+cat_valid = check_if_catenary_valid(Z,anchor_point,cable_length)
+if cable_floor == False:
+    cat_valid = True
 cable_coords, l1 = run_catenary(l1,Z,anchor_point,cable_length,cat_valid)
 
 fig, ax = plt.subplots()
@@ -292,7 +296,7 @@ phi = 0
 def update(it):
     """Update the animation for iteration number it."""
 
-    global omega, dh, G, theta, Fz_mag, Fh_mag, l1
+    global omega, dh, G, theta, Fz_mag, Fh_mag, l1, boom_under_ice
 
     print('iteration #{}'.format(it))
 
@@ -307,7 +311,7 @@ def update(it):
     iceberg, iceberg_index = rotate_poly(iceberg0, iceberg0_index, theta)
     iceberg = iceberg + G
     
-    ice_thickness = 1
+    ice_thickness = .5
     
     H, Fh = ice_interface(iceberg,ice_thickness,Fh_mag)
 
@@ -318,6 +322,8 @@ def update(it):
     #update the location of where the chain is attached
     l1.setFairleadCoords([Z[0], 0., Z[1]])
     cat_valid = check_if_catenary_valid(Z,anchor_point,cable_length)
+    if cable_floor == False:
+        cat_valid = True
     cable_coords, l1 = run_catenary(l1,Z,anchor_point,cable_length,cat_valid)
     
    
@@ -351,6 +357,7 @@ def update(it):
             cable_force = np.array((0.,-partial_cable_weight[0]))
 
     Fz = cable_force
+    print(Fz)
     
     # Which vertices are submerged (have their y-coordinate negative)?
     submerged = (iceberg[:,1] <= 0)
@@ -381,6 +388,20 @@ def update(it):
 
     # Buoyant force due to the displaced water.
     Fb = np.array((0, rho_water * abs(Adisplaced) * g))
+    
+    Fi = np.array((0,0))
+    I = iceberg[iceberg[:,1].argmax()]
+    #ice friction
+    if boom_under_ice:
+        print("boom")
+        Fi[0]= Fb[1] * boom_ice_friction * - np.sign(Fh_mag) 
+        k_ice = 3000
+        Fi[1] = k_ice*(-ice_thickness*0.92 - I[1])
+        
+        
+
+        
+        
 
     if B is not None:
         # Vector from G to B
@@ -388,6 +409,7 @@ def update(it):
         # Torque about G
         tau = np.cross(r, Fb)
         alpha = tau / Iz
+        print(Iz)
     
     #H = np.array((0,-ice_thickness/2))
     rh = H - G
@@ -397,8 +419,16 @@ def update(it):
     rz = Z - G
     tau_z = np.cross(rz, Fz)
     alpha += tau_z / Iz
+    
+    
+    ri = I - G
+    tau_i = np.cross(ri, Fi)
+    alpha += tau_i / Iz
+    
+
+    
     # Resultant force on the iceberg.
-    F = Fg + Fb + Fz + Fh
+    F = Fg + Fb + Fz + Fh + Fi
     # Net linear acceleration.
     a = F / M
 
@@ -433,6 +463,7 @@ def update(it):
         if nsubmerged == len(submerged):
             print("sub")
             if max(iceberg[:,1])<bottom_of_ice:
+                boom_under_ice = True
                 front_of_ice = iceberg[iceberg[:,1].argmax()][0]
             else:
                 front_of_ice = iceberg[iceberg[:,1].argmax()][0]
