@@ -9,7 +9,7 @@ ymin, ymax = -15, 10
 width, height = xmax - xmin, ymax - ymin
 
 # The area density of sea water and ice.
-rho_water, rho_ice = 1.027, 0.9
+rho_water, rho_ice = 1.027, 0.7
 # Acceleration due to gravity, m.s-2
 g = 9.81
 
@@ -204,21 +204,22 @@ def run_catenary(l1,Z,anchor_point,cable_length,cat_valid):
                                  (Z[0],anchor_point[1]),
                                  anchor_point))    
     return cable_coords, l1
+
     
 # Our two-dimensional iceberg, defined as a polygon.
-poly = [
-(3,0), (3,3), (1,5), (4,7), (0,12), (1,15), (4,17), (6,14), (7,14), (8,12),
-(7,10), (7,7), (5,1)
-]
+#poly = [
+#(3,0), (3,3), (1,5), (4,7), (0,12), (1,15), (4,17), (6,14), (7,14), (8,12),
+#(7,10), (7,7), (5,1)
+#]
 
 #poly = [
 #(3,0), (7,0), (7,4), (3,4)
 #]
 
-#poly=[]
-#radius = 3
-#for dtheta in np.linspace(0,2*np.pi,100):
-#    poly.append(np.array((radius*np.sin(dtheta),radius*np.cos(dtheta))))
+poly=[]
+radius = 3
+for dtheta in np.linspace(0,2*np.pi,100):
+    poly.append(np.array((radius*np.sin(dtheta),radius*np.cos(dtheta))))
 
 Fz_mag = 0
 
@@ -243,12 +244,13 @@ _, _, Iz = get_moi(iceberg0, rho_ice)
 #cable anchor
 anchor_point = np.array((7.5,-15))
 
-load_point = 1
+load_point = 50
 Z = find_coordinate(iceberg0, iceberg0_index, load_point)
 
-Fh_mag = 0
+Fh_mag = -100
+boom_under_ice = False
 
-cable_length = 20
+cable_length = 18
 cable_w = 1.036  # submerged weight
 cable_EA = 560e3  # axial stiffness
 cable_floor =True  # if True, contact is possible at the level of the anchor
@@ -290,7 +292,7 @@ phi = 0
 def update(it):
     """Update the animation for iteration number it."""
 
-    global omega, dh, G, theta, Fz_mag, Fh_mag, l1, phi
+    global omega, dh, G, theta, Fz_mag, Fh_mag, l1
 
     print('iteration #{}'.format(it))
 
@@ -306,10 +308,6 @@ def update(it):
     iceberg = iceberg + G
     
     ice_thickness = 1
-
-    Fh_mag = np.sin(phi)*500
-    print(Fh_mag)
-    phi+=0.02
     
     H, Fh = ice_interface(iceberg,ice_thickness,Fh_mag)
 
@@ -427,6 +425,31 @@ def update(it):
     # Indicate the position of the centre of mass.
     cofm_patch = plt.Circle(G, 0.2, fc='r')
     ax.add_patch(cofm_patch)
+    
+    if iceberg_in_water:
+        ice_density = 0.92
+        top_of_ice = ice_thickness*(1-ice_density)
+        bottom_of_ice = -ice_thickness*ice_density
+        if nsubmerged == len(submerged):
+            print("sub")
+            if max(iceberg[:,1])<bottom_of_ice:
+                front_of_ice = iceberg[iceberg[:,1].argmax()][0]
+            else:
+                front_of_ice = iceberg[iceberg[:,1].argmax()][0]
+        else:
+            waterline = displaced_water[displaced_water[:,1]==0]
+            if np.sign(Fh_mag)==1:
+                front_of_ice = waterline[waterline[:,0].argmin()][0]
+                
+            else:
+                front_of_ice = waterline[waterline[:,0].argmax()][0]
+                #print(front_of_ice)
+
+        back_of_ice = front_of_ice - np.sign(Fh_mag)*10
+        
+        ice_sheet = np.array([[front_of_ice,bottom_of_ice],[back_of_ice,bottom_of_ice],[back_of_ice,top_of_ice],[front_of_ice,top_of_ice]])
+        ice_sheet_patch = plt.Polygon(ice_sheet, fc='#ffdddd',ec='k')
+        ax.add_patch(ice_sheet_patch)
     
     if comp_cable_length >= cable_length:
         # Draw the cable
